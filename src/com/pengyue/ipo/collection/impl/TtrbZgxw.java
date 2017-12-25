@@ -1,0 +1,86 @@
+package com.pengyue.ipo.collection.impl;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
+import com.pengyue.ipo.bean.News;
+import com.pengyue.ipo.collection.CollectionNews;
+import com.pengyue.ipo.collection.SourceInfo;
+import com.pengyue.ipo.util.DateUtil;
+
+/**
+ * 头条日报--中国新闻
+ * @author admin
+ *
+ */
+public class TtrbZgxw extends CollectionNews {
+
+	@Override
+	public void collection() {
+		String url = "http://hd.stheadline.com/news/daily/chi/";
+		String nextUrl = null;
+		int page = 1;
+		try {
+			do {
+				List<News> newsList = new ArrayList<News>();
+				Document doc = null;
+				if (nextUrl == null || nextUrl.trim().length() == 0) {
+					doc = getConnection(url).get();
+				} else {
+					doc = getConnection(nextUrl)
+							.header("Referer", "http://hd.stheadline.com/news/daily/chi/")
+							.get();
+				}
+				Elements eles = doc.select(".col-xs-12");
+				for (Element ele : eles) {
+					String pubDate = ele.select(".topic .time").first().ownText().trim();
+					//判断新闻是否过期
+					if(isOverdue(pubDate,"yyyy-MM-dd")){
+						System.out.println("---新闻过期了跳过---");
+						break;
+					}
+					String href = "http://hd.stheadline.com" + ele.select(".topic h4 a").attr("href");
+					//判断url是否已存在
+					if (!getNewsService().urlExists(href)) {
+						Document descDoc = null;
+						try {
+							descDoc = getConnection(href).get();
+						} catch (Exception e) {
+							System.out.println("请求详情页报错:" + e.getMessage());
+							continue;
+						}
+						pubDate = DateUtil.fmtDt(DateUtil.parse(pubDate, "yyyy-MM-dd"), timeFormat);
+						String title = ele.select(".topic h4 a").text();
+						String context = descDoc.select("#news-content").text();
+						String desc = null;
+						if (context.length() > 80) {
+							desc = context.substring(0, 80) + "...";
+						} else {
+							desc = context;
+						}
+						News news = getNewsBean(title, pubDate, SourceInfo.TTRB_ZGXW, "0", desc, context, href);
+						newsList.add(news);
+					}
+				}
+				if (newsList != null && newsList.size() > 0) {
+					//保存数据库
+					getNewsService().batchInsert(newsList);
+					//下一页地址
+					nextUrl = "http://hd.stheadline.com/ajax/getMoreDailyNewsOnList.php?cid=2&page=" + page;
+					System.out.println(nextUrl);
+					page++;
+				} else {
+					break;
+				}
+			} while (true);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+}
